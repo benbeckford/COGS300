@@ -56,6 +56,7 @@ void loop() {
         char last = 0;
 
         while (client.connected()) {
+    Serial.begin(9600);
             if (client.available()) {
                 char c = client.read();
 
