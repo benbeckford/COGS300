@@ -46,9 +46,11 @@
                 new Uint8Array([
                     e.offset.y >= 205 ? 0xf : 0,
                     Math.round(
-                        (e.offset.y >= 205
+                        ((e.offset.y >= 205
                             ? e.offset.y - 205
-                            : (205 - e.offset.y) / 205) * 255,
+                            : 205 - e.offset.y) /
+                            205) *
+                            255,
                     ),
                 ]).buffer,
             );
@@ -69,9 +71,11 @@
                 new Uint8Array([
                     e.offset.y >= 205 ? 0xff : 0xf0,
                     Math.round(
-                        (e.offset.y >= 205
+                        ((e.offset.y >= 205
                             ? e.offset.y - 205
-                            : (205 - e.offset.y) / 205) * 255,
+                            : 205 - e.offset.y) /
+                            205) *
+                            255,
                     ),
                 ]).buffer,
             );
