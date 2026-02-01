@@ -1,5 +1,6 @@
 #include "WiFiS3.h"
 #include <WebSocketsServer.h>
+#include <ArduinoMDNS.h>
 
 const int enA = 9;
 const int in1 = 8;
@@ -8,10 +9,10 @@ const int enB = 10;
 const int in3 = 6;
 const int in4 = 5;
 
-IPAddress ip(192, 168, 4, 1);
 WiFiServer server(80);
 WebSocketsServer webSocket(81);
-
+WiFiUDP udp;
+MDNS mdns(udp);
 
 void setup() {
     Serial.begin(9600);
@@ -23,14 +24,17 @@ void setup() {
     pinMode(in3, OUTPUT);
     pinMode(in4, OUTPUT);
 
-    WiFi.config(ip);
-    WiFi.beginAP("COGS 300 Robot", "");
-
-    delay(5000);
+    while (WiFi.status() != WL_CONNECTED) {
+        WiFi.begin("robot300", "robot300");
+        delay(5000);
+    }
 
     server.begin();
     webSocket.begin();
     webSocket.onEvent(webSocketEvent);
+
+    mdns.begin(WiFi.localIP(), "arduino");
+    mdns.addServiceRecord("server._http", 80, MDNSServiceTCP);
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
@@ -45,6 +49,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
 }
 
 void loop() {
+    mdns.run();
     webSocket.loop();
 
     WiFiClient client = server.available();
@@ -66,6 +71,8 @@ void loop() {
                     client.println();
                     break;
                 }
+
+                Serial.write(c);
 
                 last = c;
             }
