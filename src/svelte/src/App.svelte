@@ -32,41 +32,66 @@
         position({ current: $state.snapshot(posRight.current) }),
     );
 
+    let timeoutLeft: number | null = null;
+
     const dragLeft = (e: DragEventData) => {
         posLeft.set({ x: e.offset.x, y: e.offset.y }, { duration: 0 });
 
-        socket.send(
-            new Uint8Array([
-                e.offset.y >= 205 ? 0xf : 0,
-                Math.round(
-                    (e.offset.y >= 205
-                        ? e.offset.y - 205
-                        : (205 - e.offset.y) / 205) * 255,
-                ),
-            ]).buffer,
-        );
+        if (timeoutLeft != null) {
+            clearTimeout(timeoutLeft);
+        }
+
+        timeoutLeft = setTimeout(() => {
+            socket.send(
+                new Uint8Array([
+                    e.offset.y >= 205 ? 0xf : 0,
+                    Math.round(
+                        (e.offset.y >= 205
+                            ? e.offset.y - 205
+                            : (205 - e.offset.y) / 205) * 255,
+                    ),
+                ]).buffer,
+            );
+        }, 50);
     };
+
+    let timeoutRight: number | null = null;
 
     const dragRight = (e: DragEventData) => {
         posRight.set({ x: e.offset.x, y: e.offset.y }, { duration: 0 });
-        socket.send(
-            new Uint8Array([
-                e.offset.y >= 205 ? 0xff : 0xf0,
-                Math.round(
-                    (e.offset.y >= 205
-                        ? e.offset.y - 205
-                        : (205 - e.offset.y) / 205) * 255,
-                ),
-            ]).buffer,
-        );
+
+        if (timeoutRight != null) {
+            clearTimeout(timeoutRight);
+        }
+
+        timeoutRight = setTimeout(() => {
+            socket.send(
+                new Uint8Array([
+                    e.offset.y >= 205 ? 0xff : 0xf0,
+                    Math.round(
+                        (e.offset.y >= 205
+                            ? e.offset.y - 205
+                            : (205 - e.offset.y) / 205) * 255,
+                    ),
+                ]).buffer,
+            );
+        }, 50);
     };
 
     const endDragLeft = (_) => {
+        if (timeoutLeft != null) {
+            clearTimeout(timeoutLeft);
+        }
+
         posLeft.target = { x: 0, y: 205 };
         socket.send(new Uint8Array([0, 0]).buffer);
     };
 
     const endDragRight = (_) => {
+        if (timeoutRight != null) {
+            clearTimeout(timeoutRight);
+        }
+
         posRight.target = { x: 0, y: 205 };
         socket.send(new Uint8Array([0xf0, 0]).buffer);
     };
