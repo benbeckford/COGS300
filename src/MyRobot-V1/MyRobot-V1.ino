@@ -15,8 +15,6 @@ WiFiUDP udp;
 MDNS mdns(udp);
 
 void setup() {
-    Serial.begin(9600);
-
     pinMode(enA, OUTPUT);
     pinMode(enB, OUTPUT);
     pinMode(in1, OUTPUT);
@@ -66,13 +64,11 @@ void loop() {
                     client.println("Content-type:text/html");
                     client.println();
 
-                    client.print("Hello, world!");
+                    client.print("<script>fetch(\"https://benbeckford.github.io/COGS300/\").then(r=>r.text()).then(d=>{document.open();document.write(d);document.close();})</script>");
 
                     client.println();
                     break;
                 }
-
-                Serial.write(c);
 
                 last = c;
             }
