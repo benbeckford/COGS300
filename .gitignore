@@ -42,3 +42,6 @@
 
 # Mac
 .DS_Store
+
+src/svelte/node_modules
+src/svelte/dist
