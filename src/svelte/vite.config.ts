@@ -3,5 +3,5 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 
 export default defineConfig({
   plugins: [svelte()],
-  base: "http://arduino.local/",
+  base: "https://benbeckford.github.io/COGS300/",
 });
