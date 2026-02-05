@@ -1,0 +1,3 @@
+[submodule "src/esp32/uno-r4-wifi-usb-bridge"]
+	path = src/esp32/uno-r4-wifi-usb-bridge
+	url = git@github.com:arduino/uno-r4-wifi-usb-bridge.git
