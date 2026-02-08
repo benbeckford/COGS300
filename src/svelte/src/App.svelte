@@ -12,6 +12,9 @@
     import { Tween } from "svelte/motion";
     import { expoOut } from "svelte/easing";
 
+    let right_dist = $state(0);
+    let left_dist = $state(0);
+
     const socket = new WebSocket("ws://arduino.local:81");
 
     const posLeft = new Tween(
@@ -99,11 +102,20 @@
         posRight.target = { x: 0, y: 205 };
         socket.send(new Uint8Array([0xf0, 0]).buffer);
     };
+
+    socket.onmessage = (event) => {
+        if (event.data.startsWith("R")) {
+            left_dist = event.data.substring(2);
+        } else {
+            right_dist = event.data.substring(2);
+        }
+        console.log(event.data);
+    };
 </script>
 
 <main>
     <div class="column">
-        <h1>L</h1>
+        <h1>L <span style="font-size: 32pt">({left_dist}cm)</span></h1>
         <div class="slider">
             <div
                 {@attach draggable(() => [
@@ -120,7 +132,7 @@
         </div>
     </div>
     <div class="column">
-        <h1>R</h1>
+        <h1>R <span style="font-size: 32pt">({right_dist}cm)</span></h1>
         <div class="slider">
             <div
                 {@attach draggable(() => [
