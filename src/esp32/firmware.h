@@ -1,3 +1,5 @@
+#include "config.h"
+
 #include "uno-r4-wifi-usb-bridge/UNOR4USBBridge/at_handler.cpp"
 #include "uno-r4-wifi-usb-bridge/UNOR4USBBridge/BossaUnoR4WiFI.cpp"
 #include "uno-r4-wifi-usb-bridge/UNOR4USBBridge/OTA.cpp"
@@ -20,8 +22,15 @@ USBHID HID;
 // Quick fix for https://github.com/arduino/uno-r4-wifi-usb-bridge/issues/52
 #define USBSerial USBSerial_
 
+#define IDENT(x) x
+#define XSTR(x) #x
+#define STR(x) XSTR(x)
+#define PATH(x,y) STR(IDENT(x)IDENT(y))
+
+#define PATH_TO_INO /src/esp32/uno-r4-wifi-usb-bridge/UNOR4USBBridge/UNOR4USBBridge.ino
+
 #define setup() firmware_setup()
 #define loop() firmware_loop()
-#include "/var/home/ben/git/github.com/benbeckford/COGS300/src/esp32/uno-r4-wifi-usb-bridge/UNOR4USBBridge/UNOR4USBBridge.ino"
+#include PATH(PATH_TO_REPO,PATH_TO_INO)
 #undef setup()
 #undef loop()
