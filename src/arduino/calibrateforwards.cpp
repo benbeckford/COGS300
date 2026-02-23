@@ -11,7 +11,7 @@ CalibrateForwards::CalibrateForwards() {
 void CalibrateForwards::event(uint8_t * data, size_t len) {
   switch (data[0]) {
     case 0x00:
-       analogWrite(LEFT_MOTOR_POWER, 0);
+      analogWrite(LEFT_MOTOR_POWER, 0);
       analogWrite(RIGHT_MOTOR_POWER, 0);
       return;
     case 0x11:

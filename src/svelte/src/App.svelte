@@ -1,6 +1,7 @@
 <script lang="ts">
     import { state } from "./lib/socket.svelte";
     import Calibrate from "./modes/Calibrate.svelte";
+    import FollowWall from "./modes/FollowWall.svelte";
     import RemoteControl from "./modes/RemoteControl.svelte";
     let tab: string;
 </script>
@@ -9,6 +10,12 @@
     <ul>
         <li onclick={() => (tab = "rc")} class:active={tab == "rc"}>
             Remote Control
+        </li>
+        <li
+            onclick={() => (tab = "followwall")}
+            class:active={tab == "followwall"}
+        >
+            Follow Wall
         </li>
         <li
             onclick={() => (tab = "calibrate")}
@@ -21,6 +28,8 @@
         {#if state.connected}
             {#if tab == "rc"}
                 <RemoteControl />
+            {:else if tab == "followwall"}
+                <FollowWall />
             {:else if tab == "calibrate"}
                 <Calibrate />
             {:else}

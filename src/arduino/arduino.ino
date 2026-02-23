@@ -6,6 +6,7 @@
 #include "standby.h"
 #include "rc.h"
 #include "calibrateforwards.h"
+#include "followwall.h"
 
 WiFiServer server(80);
 WebSocketsServer webSocket(81);
@@ -75,6 +76,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
       case 2:
         delete mode;
         mode = new CalibrateForwards();
+        return;
+      case 3:
+        delete mode;
+        mode = new FollowWall();
         return;
       default:
         break;
