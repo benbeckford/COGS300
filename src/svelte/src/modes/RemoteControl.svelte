@@ -46,7 +46,7 @@
                 Math.round(
                     ((e.offset.y >= 205 ? e.offset.y - 205 : 205 - e.offset.y) /
                         205) *
-                        255,
+                        100,
                 ),
             );
         }, 50);
@@ -67,7 +67,7 @@
                 Math.round(
                     ((e.offset.y >= 205 ? e.offset.y - 205 : 205 - e.offset.y) /
                         205) *
-                        255,
+                        100,
                 ),
             );
         }, 50);

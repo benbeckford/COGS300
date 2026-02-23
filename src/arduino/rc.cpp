@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "pins.h"
 #include "standby.h"
+#include "calibration.h"
 
 RemoteControl::RemoteControl() {
   Standby();
@@ -15,5 +16,10 @@ void RemoteControl::event(uint8_t * data, size_t len) {
 
   digitalWrite(motor ? RIGHT_MOTOR_FORWARD : LEFT_MOTOR_FORWARD, dir ? HIGH : LOW);
   digitalWrite(motor ? RIGHT_MOTOR_BACKWARD : LEFT_MOTOR_BACKWARD, dir ? LOW : HIGH);
-  analogWrite(motor ? RIGHT_MOTOR_POWER : LEFT_MOTOR_POWER, data[1]);
+
+  if (motor) {    
+    analogWrite(RIGHT_MOTOR_POWER, (data[1] / 100.0) * (float) Calibration::rightMotorMaximum);
+  } else {
+    analogWrite(LEFT_MOTOR_POWER, (data[1] / 100.0) * (float) Calibration::leftMotorMaximum);
+  }
 }

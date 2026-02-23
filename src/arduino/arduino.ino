@@ -5,6 +5,7 @@
 #include "mode.h"
 #include "standby.h"
 #include "rc.h"
+#include "calibrateforwards.h"
 
 WiFiServer server(80);
 WebSocketsServer webSocket(81);
@@ -70,6 +71,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
       case 1:
         delete mode;
         mode = new RemoteControl();
+        return;
+      case 2:
+        delete mode;
+        mode = new CalibrateForwards();
         return;
       default:
         break;

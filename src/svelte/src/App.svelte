@@ -1,5 +1,6 @@
 <script lang="ts">
     import { state } from "./lib/socket.svelte";
+    import Calibrate from "./modes/Calibrate.svelte";
     import RemoteControl from "./modes/RemoteControl.svelte";
     let tab: string;
 </script>
@@ -9,11 +10,19 @@
         <li onclick={() => (tab = "rc")} class:active={tab == "rc"}>
             Remote Control
         </li>
+        <li
+            onclick={() => (tab = "calibrate")}
+            class:active={tab == "calibrate"}
+        >
+            Calibrate
+        </li>
     </ul>
     <div class="content">
         {#if state.connected}
             {#if tab == "rc"}
                 <RemoteControl />
+            {:else if tab == "calibrate"}
+                <Calibrate />
             {:else}
                 <div class="text">
                     <h1>
