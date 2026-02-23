@@ -11,7 +11,7 @@ WebSocketsServer webSocket(81);
 WiFiUDP udp;
 MDNS mdns(udp);
 
-Mode mode;
+Mode *mode;
 
 void setup() {
   pinMode(LEFT_MOTOR_POWER, OUTPUT);
@@ -34,11 +34,11 @@ void setup() {
   webSocket.onEvent(webSocketEvent);
   mdns.addServiceRecord("server._http", 80, MDNSServiceTCP);
 
-  mode = Standby();
+  mode = new Standby();
 }
 
 void loop() {
-  mode.loop();
+  mode->loop();
 
   if (WiFi.status() != WL_CONNECTED) {
     WiFi.begin("robot300", "robot300");
@@ -46,6 +46,7 @@ void loop() {
 
     if (WiFi.status() == WL_CONNECTED) {
       mdns.begin(WiFi.localIP(), "arduino");
+      Serial.println("Connected successfully!");
     } else {
       return;
     }
@@ -60,20 +61,22 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
   if (type != WStype_BIN)
     return;
 
-  if (*payload == 0xCAFE && length == 2) {
-    switch (payload[1]) {
+  if (length == 3 && payload[0] == 0xCA && payload[1] == 0xFE) {
+    switch (payload[2]) {
       case 0:
-        mode = Standby();
+        delete mode;
+        mode = new Standby();
         return;
       case 1:
-        mode = RemoteControl();
+        delete mode;
+        mode = new RemoteControl();
         return;
       default:
         break;
     }
   }
 
-  mode.event(payload, length);
+  mode->event(payload, length);
 }
 
 void serveClientBootstrap() {

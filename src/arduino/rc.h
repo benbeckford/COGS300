@@ -6,7 +6,7 @@
 class RemoteControl : public Mode {
   public:
     RemoteControl();
-    void event(uint8_t * data, size_t len) override;
+    virtual void event(uint8_t * data, size_t len) override;
 };
 
 #endif
