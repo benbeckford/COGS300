@@ -63,7 +63,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
   if (type != WStype_BIN)
     return;
 
-  if (length == 3 && payload[0] == 0xCA && payload[1] == 0xFE) {
+  if (length == 4 && payload[0] == 0xCA && payload[1] == 0xFE) {
     switch (payload[2]) {
       case 0:
         delete mode;
@@ -80,6 +80,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
       case 3:
         delete mode;
         mode = new FollowWall();
+        return;
+      case 4:
+        delete mode;
+        mode = new FollowLine();
         return;
       default:
         break;
