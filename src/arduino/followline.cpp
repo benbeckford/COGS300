@@ -17,7 +17,7 @@ void FollowLine::loop() {
   int leftSensor = digitalRead(LEFT_INFRARED);
   int rightSensor = digitalRead(RIGHT_INFRARED);
 
-  if (leftSensor == LOW & rightSensor == LOW) {
+  if (leftSensor == LOW && rightSensor == LOW) {
     analogWrite(LEFT_MOTOR_FORWARD, baseSpeed);
     analogWrite(RIGHT_MOTOR_FORWARD, baseSpeed);
   }
