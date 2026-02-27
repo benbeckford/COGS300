@@ -1,6 +1,6 @@
 #include "followline.h"
 #include <Arduino.h>
-#include "pins_arduino.h"
+#include "pins.h"
 #include "standby.h"
 #include "calibration.h"
 
