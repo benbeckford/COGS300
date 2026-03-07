@@ -22,8 +22,8 @@ int forwardRightSpeed = 100;
 
 int pauseTime = 300;
 
-int forwardTimeAfterDetection = 700;
-int leftResetPulses = 6;
+int forwardTimeAfterDetection = 800;
+int leftResetPulses = 4;
 
 // ---- Detection Settings ----
 const int OBJECT_DISTANCE_THRESHOLD_CM = 50;
@@ -72,7 +72,7 @@ void stopForever() {
   stopMotors();
   Serial.println("OBJECT TOO CLOSE - FINAL STOP");
 
-  while (true);
+  while(true);
 }
 
 // ---- Spin Right ----
@@ -113,6 +113,7 @@ void moveForward() {
 
 // ---- Move Forward For Fixed Time ----
 void moveForwardForTime(int durationMs) {
+
   Serial.print("MOVING FORWARD FOR ");
   Serial.print(durationMs);
   Serial.println(" ms");
@@ -121,7 +122,8 @@ void moveForwardForTime(int durationMs) {
 
   moveForward();
 
-  while (millis() - start < (unsigned long)durationMs) {
+  while (millis() - start < durationMs) {
+
     long cm = readUltrasonicCM(FRONT_ULTRASONIC_TRIG, FRONT_ULTRASONIC_ECHO);
 
     Serial.print("Forward Distance: ");
@@ -166,10 +168,6 @@ void spinUntilNextRightEncoder() {
 
 // ---- Spin Left Pulses ----
 void spinLeftPulses(long pulses) {
-  if (pulses <= 0) {
-    stopMotors();
-    return;
-  }
 
   long start = rightCount;
 
@@ -184,22 +182,21 @@ void spinLeftPulses(long pulses) {
 }
 
 // ---- Scan ----
-// Finds object, then centers on the PEAK / NEAREST part of that object
 bool scanForObjectAndCenterIfFound() {
+
   bool inObject = false;
 
   long objectStartPulse = -1;
   long objectEndPulse = -1;
 
   long nearestDistance = 100000;
-
-  // range where the nearest value occurs
   long peakStartPulse = -1;
   long peakEndPulse = -1;
 
   Serial.println("---- NEW SCAN ----");
 
   for (int scanPulse = 1; scanPulse <= MAX_SCAN_PULSES; scanPulse++) {
+
     spinUntilNextRightEncoder();
 
     long cm = readUltrasonicCM(FRONT_ULTRASONIC_TRIG, FRONT_ULTRASONIC_ECHO);
@@ -216,97 +213,53 @@ bool scanForObjectAndCenterIfFound() {
     bool objectSeen = (cm > 0 && cm <= OBJECT_DISTANCE_THRESHOLD_CM);
 
     if (objectSeen) {
+
       if (!inObject) {
         inObject = true;
         objectStartPulse = scanPulse;
-        objectEndPulse = scanPulse;
-
         nearestDistance = cm;
         peakStartPulse = scanPulse;
         peakEndPulse = scanPulse;
-      } else {
-        objectEndPulse = scanPulse;
-
-        // Found a new nearest point
-        if (cm < nearestDistance - PEAK_TOLERANCE_CM) {
-          nearestDistance = cm;
-          peakStartPulse = scanPulse;
-          peakEndPulse = scanPulse;
-        }
-        // Still part of the same nearest/peak region
-        else if (cm <= nearestDistance + PEAK_TOLERANCE_CM) {
-          peakEndPulse = scanPulse;
-        }
       }
-    } else {
+
+      objectEndPulse = scanPulse;
+
+      if (cm < nearestDistance - PEAK_TOLERANCE_CM) {
+        nearestDistance = cm;
+        peakStartPulse = scanPulse;
+        peakEndPulse = scanPulse;
+      }
+
+      else if (cm <= nearestDistance + PEAK_TOLERANCE_CM) {
+        peakEndPulse = scanPulse;
+      }
+    }
+
+    else {
+
       if (inObject) {
+
         long width = objectEndPulse - objectStartPulse + 1;
 
         if (width >= MIN_OBJECT_PULSES) {
+
           long peakMid = (peakStartPulse + peakEndPulse) / 2;
           long pulsesBack = scanPulse - peakMid;
 
           Serial.println("OBJECT FOUND");
-          Serial.print("Object start pulse: ");
-          Serial.println(objectStartPulse);
-          Serial.print("Object end pulse: ");
-          Serial.println(objectEndPulse);
-          Serial.print("Nearest distance: ");
-          Serial.println(nearestDistance);
-          Serial.print("Peak start pulse: ");
-          Serial.println(peakStartPulse);
-          Serial.print("Peak end pulse: ");
-          Serial.println(peakEndPulse);
-          Serial.print("Peak midpoint pulse: ");
-          Serial.println(peakMid);
-          Serial.print("Spinning left by ");
-          Serial.print(pulsesBack);
-          Serial.println(" pulses");
 
           spinLeftPulses(pulsesBack);
 
-          Serial.println("CENTERED ON PEAK / NEAREST");
+          Serial.println("CENTERED");
+
           return true;
         }
 
         inObject = false;
-        objectStartPulse = -1;
-        objectEndPulse = -1;
-        nearestDistance = 100000;
-        peakStartPulse = -1;
-        peakEndPulse = -1;
       }
     }
 
     delay(pauseTime);
-  }
-
-  // Handle case where scan ends while still inside object
-  if (inObject) {
-    long width = objectEndPulse - objectStartPulse + 1;
-
-    if (width >= MIN_OBJECT_PULSES) {
-      long peakMid = (peakStartPulse + peakEndPulse) / 2;
-      long pulsesBack = MAX_SCAN_PULSES - peakMid;
-
-      Serial.println("OBJECT FOUND AT END OF SCAN");
-      Serial.print("Nearest distance: ");
-      Serial.println(nearestDistance);
-      Serial.print("Peak start pulse: ");
-      Serial.println(peakStartPulse);
-      Serial.print("Peak end pulse: ");
-      Serial.println(peakEndPulse);
-      Serial.print("Peak midpoint pulse: ");
-      Serial.println(peakMid);
-      Serial.print("Spinning left by ");
-      Serial.print(pulsesBack);
-      Serial.println(" pulses");
-
-      spinLeftPulses(pulsesBack);
-
-      Serial.println("CENTERED ON PEAK / NEAREST");
-      return true;
-    }
   }
 
   Serial.println("NO OBJECT FOUND");
@@ -315,6 +268,7 @@ bool scanForObjectAndCenterIfFound() {
 
 // ---- Setup ----
 void setup() {
+
   Serial.begin(9600);
 
   pinMode(LEFT_MOTOR_POWER, OUTPUT);
@@ -339,9 +293,11 @@ void setup() {
 
 // ---- Loop ----
 void loop() {
+
   bool objectFound = scanForObjectAndCenterIfFound();
 
   if (objectFound) {
+
     moveForwardForTime(forwardTimeAfterDetection);
 
     delay(300);
@@ -353,7 +309,9 @@ void loop() {
     spinLeftPulses(leftResetPulses);
 
     delay(300);
-  } else {
+  }
+
+  else {
     delay(300);
   }
 }
