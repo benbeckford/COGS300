@@ -1,0 +1,579 @@
+// ============================================================
+// Scan, Face Object, Then Drive Forward For 2 Seconds
+// Arduino UNO R4 WiFi + L298N + HC-SR04
+//
+// Behavior:
+//   - Wait for 's' in Serial Monitor
+//   - Scan clockwise using right encoder
+//   - Sample distance every 3 right ticks
+//   - Store 13 samples at ticks 3..39
+//   - Continue turning to 42 ticks total, then stop
+//   - Find a small close cluster (1 to 3 readings <= 20 cm)
+//   - Choose the best cluster by lowest average distance
+//   - Turn back by the shortest path to face the cluster midpoint
+//   - Drive straight forward for 2 seconds
+//
+// Serial commands:
+//   s = scan, face object, drive forward
+//   p = print last scan table
+//   m = single median ultrasonic reading
+//   h = help
+// ============================================================
+
+// ---------------- Pin Definitions ----------------
+#define LEFT_MOTOR_POWER      6
+#define LEFT_MOTOR_FORWARD    5
+#define LEFT_MOTOR_BACKWARD   7
+
+#define RIGHT_MOTOR_POWER     3
+#define RIGHT_MOTOR_FORWARD   4
+#define RIGHT_MOTOR_BACKWARD  2
+
+#define LEFT_ENCODER          12
+#define RIGHT_ENCODER         13
+
+#define FRONT_ULTRASONIC_TRIG 11
+#define FRONT_ULTRASONIC_ECHO 10
+
+// ---------------- Scan / Motion Settings ----------------
+const int LEFT_SPIN_PWM  = 115;
+const int RIGHT_SPIN_PWM = 135;
+
+// Forward drive tuning
+// Right side is slightly higher because you said the right wheel tends to be slower.
+const int LEFT_FORWARD_PWM  = 105;
+const int RIGHT_FORWARD_PWM = 120;
+const unsigned long FORWARD_DRIVE_MS = 2000;
+
+const int TICKS_PER_SAMPLE = 3;
+const int NUM_SAMPLES = 13;           // samples at 3,6,9,...,39
+const int TOTAL_ROTATION_TICKS = 42;  // full scan stop point
+
+// Object detection rule
+const int OBJECT_DISTANCE_THRESHOLD_CM = 20;
+const int MIN_CLUSTER_WIDTH = 1;
+const int MAX_CLUSTER_WIDTH = 3;
+
+// Ultrasonic settings
+const int ULTRASONIC_READS_PER_SAMPLE = 5;
+const unsigned long ULTRASONIC_TIMEOUT_US = 25000;
+const int INVALID_DISTANCE = -1;
+
+// Timing
+const unsigned long MOTOR_SETTLE_MS = 150;
+const unsigned long BETWEEN_PINGS_MS = 35;
+
+// ---------------- Encoder State ----------------
+long leftCount = 0;
+long rightCount = 0;
+
+int lastLeftState = LOW;
+int lastRightState = LOW;
+
+// ---------------- Scan Data ----------------
+long scanTicks[NUM_SAMPLES];
+int scanDistances[NUM_SAMPLES];
+bool hasScanData = false;
+
+// ============================================================
+// Encoder Update
+// ============================================================
+void updateEncoders() {
+  int leftState = digitalRead(LEFT_ENCODER);
+  int rightState = digitalRead(RIGHT_ENCODER);
+
+  if (leftState == HIGH && lastLeftState == LOW) {
+    leftCount++;
+  }
+
+  if (rightState == HIGH && lastRightState == LOW) {
+    rightCount++;
+  }
+
+  lastLeftState = leftState;
+  lastRightState = rightState;
+}
+
+void resetCounts() {
+  leftCount = 0;
+  rightCount = 0;
+  lastLeftState = digitalRead(LEFT_ENCODER);
+  lastRightState = digitalRead(RIGHT_ENCODER);
+}
+
+// ============================================================
+// Motor Helpers
+// ============================================================
+void stopMotors() {
+  analogWrite(LEFT_MOTOR_POWER, 0);
+  analogWrite(RIGHT_MOTOR_POWER, 0);
+
+  digitalWrite(LEFT_MOTOR_FORWARD, LOW);
+  digitalWrite(LEFT_MOTOR_BACKWARD, LOW);
+  digitalWrite(RIGHT_MOTOR_FORWARD, LOW);
+  digitalWrite(RIGHT_MOTOR_BACKWARD, LOW);
+}
+
+void spinClockwise() {
+  // left forward, right backward
+  digitalWrite(LEFT_MOTOR_FORWARD, HIGH);
+  digitalWrite(LEFT_MOTOR_BACKWARD, LOW);
+
+  digitalWrite(RIGHT_MOTOR_FORWARD, LOW);
+  digitalWrite(RIGHT_MOTOR_BACKWARD, HIGH);
+
+  analogWrite(LEFT_MOTOR_POWER, LEFT_SPIN_PWM);
+  analogWrite(RIGHT_MOTOR_POWER, RIGHT_SPIN_PWM);
+}
+
+void spinCounterclockwise() {
+  // left backward, right forward
+  digitalWrite(LEFT_MOTOR_FORWARD, LOW);
+  digitalWrite(LEFT_MOTOR_BACKWARD, HIGH);
+
+  digitalWrite(RIGHT_MOTOR_FORWARD, HIGH);
+  digitalWrite(RIGHT_MOTOR_BACKWARD, LOW);
+
+  analogWrite(LEFT_MOTOR_POWER, LEFT_SPIN_PWM);
+  analogWrite(RIGHT_MOTOR_POWER, RIGHT_SPIN_PWM);
+}
+
+void moveForward() {
+  digitalWrite(LEFT_MOTOR_FORWARD, HIGH);
+  digitalWrite(LEFT_MOTOR_BACKWARD, LOW);
+
+  digitalWrite(RIGHT_MOTOR_FORWARD, HIGH);
+  digitalWrite(RIGHT_MOTOR_BACKWARD, LOW);
+
+  analogWrite(LEFT_MOTOR_POWER, LEFT_FORWARD_PWM);
+  analogWrite(RIGHT_MOTOR_POWER, RIGHT_FORWARD_PWM);
+}
+
+void driveForwardForTime(unsigned long durationMs) {
+  Serial.print("Driving forward for ");
+  Serial.print(durationMs);
+  Serial.println(" ms...");
+
+  moveForward();
+  unsigned long startTime = millis();
+
+  while (millis() - startTime < durationMs) {
+    updateEncoders();
+  }
+
+  stopMotors();
+  Serial.println("Forward drive complete.");
+}
+
+// ============================================================
+// Ultrasonic Helpers
+// ============================================================
+long readUltrasonicCM() {
+  digitalWrite(FRONT_ULTRASONIC_TRIG, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(FRONT_ULTRASONIC_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(FRONT_ULTRASONIC_TRIG, LOW);
+
+  unsigned long duration = pulseIn(FRONT_ULTRASONIC_ECHO, HIGH, ULTRASONIC_TIMEOUT_US);
+
+  if (duration == 0) {
+    return INVALID_DISTANCE;
+  }
+
+  long cm = duration / 58;
+
+  if (cm <= 0) {
+    return INVALID_DISTANCE;
+  }
+
+  return cm;
+}
+
+void sortIntArray(int *arr, int n) {
+  for (int i = 0; i < n - 1; i++) {
+    for (int j = i + 1; j < n; j++) {
+      if (arr[j] < arr[i]) {
+        int temp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = temp;
+      }
+    }
+  }
+}
+
+int readMedianUltrasonicCM() {
+  int valid[ULTRASONIC_READS_PER_SAMPLE];
+  int validCount = 0;
+
+  for (int i = 0; i < ULTRASONIC_READS_PER_SAMPLE; i++) {
+    long cm = readUltrasonicCM();
+
+    if (cm != INVALID_DISTANCE) {
+      valid[validCount] = (int)cm;
+      validCount++;
+    }
+
+    delay(BETWEEN_PINGS_MS);
+  }
+
+  if (validCount == 0) {
+    return INVALID_DISTANCE;
+  }
+
+  sortIntArray(valid, validCount);
+
+  if (validCount % 2 == 1) {
+    return valid[validCount / 2];
+  } else {
+    int mid1 = valid[(validCount / 2) - 1];
+    int mid2 = valid[validCount / 2];
+    return (mid1 + mid2) / 2;
+  }
+}
+
+// ============================================================
+// Printing
+// ============================================================
+void printHelp() {
+  Serial.println();
+  Serial.println("=== Commands ===");
+  Serial.println("s : scan, face object, drive forward");
+  Serial.println("p : print last scan table");
+  Serial.println("m : take one median ultrasonic reading");
+  Serial.println("h : show help");
+  Serial.println();
+}
+
+void printSingleReading() {
+  stopMotors();
+  delay(MOTOR_SETTLE_MS);
+
+  int cm = readMedianUltrasonicCM();
+  Serial.print("Single median distance = ");
+  if (cm == INVALID_DISTANCE) {
+    Serial.println("INVALID");
+  } else {
+    Serial.print(cm);
+    Serial.println(" cm");
+  }
+}
+
+void printScanTable() {
+  if (!hasScanData) {
+    Serial.println("No scan data available yet.");
+    return;
+  }
+
+  Serial.println();
+  Serial.println("=== Scan Table ===");
+  Serial.println("Index\tRightTicks\tDistance_cm");
+
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    Serial.print(i);
+    Serial.print('\t');
+    Serial.print(scanTicks[i]);
+    Serial.print('\t');
+    if (scanDistances[i] == INVALID_DISTANCE) {
+      Serial.println("INVALID");
+    } else {
+      Serial.println(scanDistances[i]);
+    }
+  }
+
+  Serial.println();
+}
+
+// ============================================================
+// Scan Routine
+// ============================================================
+void performScan() {
+  Serial.println();
+  Serial.println("Starting scan...");
+  hasScanData = false;
+
+  stopMotors();
+  delay(300);
+  resetCounts();
+
+  for (int sampleIndex = 0; sampleIndex < NUM_SAMPLES; sampleIndex++) {
+    long targetTick = (sampleIndex + 1) * TICKS_PER_SAMPLE;
+
+    spinClockwise();
+    while (rightCount < targetTick) {
+      updateEncoders();
+    }
+
+    stopMotors();
+    delay(MOTOR_SETTLE_MS);
+
+    int distanceCM = readMedianUltrasonicCM();
+
+    scanTicks[sampleIndex] = rightCount;
+    scanDistances[sampleIndex] = distanceCM;
+
+    Serial.print("Sample ");
+    Serial.print(sampleIndex);
+    Serial.print(" | Right ticks = ");
+    Serial.print(scanTicks[sampleIndex]);
+    Serial.print(" | Distance = ");
+
+    if (distanceCM == INVALID_DISTANCE) {
+      Serial.println("INVALID");
+    } else {
+      Serial.print(distanceCM);
+      Serial.println(" cm");
+    }
+  }
+
+  // Finish the scan at 42 total ticks
+  spinClockwise();
+  while (rightCount < TOTAL_ROTATION_TICKS) {
+    updateEncoders();
+  }
+  stopMotors();
+
+  hasScanData = true;
+  Serial.println("Scan complete.");
+  printScanTable();
+}
+
+// ============================================================
+// Object Cluster Detection
+// Returns true if a valid object-like cluster is found.
+// Outputs cluster start/end and target tick midpoint.
+// ============================================================
+bool findBestObjectCluster(int &bestStartIndex, int &bestEndIndex, long &bestTargetTick) {
+  bool foundAnyCluster = false;
+  float bestAverage = 100000.0;
+
+  int i = 0;
+  while (i < NUM_SAMPLES) {
+    int d = scanDistances[i];
+    bool isClose = (d != INVALID_DISTANCE && d <= OBJECT_DISTANCE_THRESHOLD_CM);
+
+    if (!isClose) {
+      i++;
+      continue;
+    }
+
+    int start = i;
+    int sum = 0;
+    int count = 0;
+
+    while (i < NUM_SAMPLES) {
+      int di = scanDistances[i];
+      bool stillClose = (di != INVALID_DISTANCE && di <= OBJECT_DISTANCE_THRESHOLD_CM);
+
+      if (!stillClose) {
+        break;
+      }
+
+      sum += di;
+      count++;
+      i++;
+    }
+
+    int end = i - 1;
+    int width = end - start + 1;
+
+    if (width >= MIN_CLUSTER_WIDTH && width <= MAX_CLUSTER_WIDTH) {
+      float avg = (float)sum / (float)count;
+
+      long startTick = scanTicks[start];
+      long endTick = scanTicks[end];
+      long targetTick = (startTick + endTick + 1) / 2;  // rounded midpoint
+
+      Serial.print("Candidate cluster: start=");
+      Serial.print(start);
+      Serial.print(" end=");
+      Serial.print(end);
+      Serial.print(" width=");
+      Serial.print(width);
+      Serial.print(" avg=");
+      Serial.print(avg);
+      Serial.print(" targetTick=");
+      Serial.println(targetTick);
+
+      if (!foundAnyCluster || avg < bestAverage) {
+        foundAnyCluster = true;
+        bestAverage = avg;
+        bestStartIndex = start;
+        bestEndIndex = end;
+        bestTargetTick = targetTick;
+      }
+    }
+  }
+
+  return foundAnyCluster;
+}
+
+// ============================================================
+// Face Target
+// Keep this logic unchanged since you said this version returns
+// to the correct angle on your robot.
+// ============================================================
+void rotateClockwiseTicks(long ticksToTurn) {
+  if (ticksToTurn <= 0) {
+    return;
+  }
+
+  resetCounts();
+  spinClockwise();
+
+  while (rightCount < ticksToTurn) {
+    updateEncoders();
+  }
+
+  stopMotors();
+}
+
+void rotateCounterclockwiseTicks(long ticksToTurn) {
+  if (ticksToTurn <= 0) {
+    return;
+  }
+
+  resetCounts();
+  spinCounterclockwise();
+
+  while (rightCount < ticksToTurn) {
+    updateEncoders();
+  }
+
+  stopMotors();
+}
+
+void faceChosenTarget(int startIndex, int endIndex, long targetTick) {
+  long clockwiseTicks = TOTAL_ROTATION_TICKS - targetTick;
+  long counterclockwiseTicks = targetTick;
+
+  Serial.print("Chosen cluster start index = ");
+  Serial.print(startIndex);
+  Serial.print(" end index = ");
+  Serial.println(endIndex);
+
+  Serial.print("Chosen target tick = ");
+  Serial.println(targetTick);
+
+  Serial.print("Return clockwise ticks = ");
+  Serial.println(clockwiseTicks);
+
+  Serial.print("Return counterclockwise ticks = ");
+  Serial.println(counterclockwiseTicks);
+
+  delay(300);
+
+  if (clockwiseTicks <= counterclockwiseTicks) {
+    Serial.println("Turning clockwise to face object...");
+    rotateClockwiseTicks(clockwiseTicks);
+  } else {
+    Serial.println("Turning counterclockwise to face object...");
+    rotateCounterclockwiseTicks(counterclockwiseTicks);
+  }
+
+  stopMotors();
+  Serial.println("Now facing chosen object direction.");
+}
+
+// ============================================================
+// Top-Level Behavior
+// ============================================================
+void scanFaceAndDriveForward() {
+  performScan();
+
+  int bestStartIndex = -1;
+  int bestEndIndex = -1;
+  long bestTargetTick = -1;
+
+  bool found = findBestObjectCluster(bestStartIndex, bestEndIndex, bestTargetTick);
+
+  if (!found) {
+    Serial.println("No valid object-like cluster found.");
+    return;
+  }
+
+  faceChosenTarget(bestStartIndex, bestEndIndex, bestTargetTick);
+  delay(300);
+  driveForwardForTime(FORWARD_DRIVE_MS);
+}
+
+// ============================================================
+// Serial Command Handling
+// ============================================================
+void handleSerialCommands() {
+  while (Serial.available() > 0) {
+    char cmd = Serial.read();
+
+    if (cmd == '\n' || cmd == '\r') {
+      continue;
+    }
+
+    switch (cmd) {
+      case 's':
+      case 'S':
+        scanFaceAndDriveForward();
+        break;
+
+      case 'p':
+      case 'P':
+        printScanTable();
+        break;
+
+      case 'm':
+      case 'M':
+        printSingleReading();
+        break;
+
+      case 'h':
+      case 'H':
+        printHelp();
+        break;
+
+      default:
+        Serial.print("Unknown command: ");
+        Serial.println(cmd);
+        Serial.println("Type 'h' for help.");
+        break;
+    }
+  }
+}
+
+// ============================================================
+// Setup
+// ============================================================
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(LEFT_MOTOR_POWER, OUTPUT);
+  pinMode(RIGHT_MOTOR_POWER, OUTPUT);
+  pinMode(LEFT_MOTOR_FORWARD, OUTPUT);
+  pinMode(LEFT_MOTOR_BACKWARD, OUTPUT);
+  pinMode(RIGHT_MOTOR_FORWARD, OUTPUT);
+  pinMode(RIGHT_MOTOR_BACKWARD, OUTPUT);
+
+  pinMode(LEFT_ENCODER, INPUT_PULLUP);
+  pinMode(RIGHT_ENCODER, INPUT_PULLUP);
+
+  pinMode(FRONT_ULTRASONIC_TRIG, OUTPUT);
+  pinMode(FRONT_ULTRASONIC_ECHO, INPUT);
+
+  lastLeftState = digitalRead(LEFT_ENCODER);
+  lastRightState = digitalRead(RIGHT_ENCODER);
+
+  stopMotors();
+
+  Serial.println();
+  Serial.println("Scan, Face Object, Drive Forward");
+  Serial.println("Baud: 115200");
+  delay(1500);
+  printHelp();
+}
+
+// ============================================================
+// Loop
+// ============================================================
+void loop() {
+  updateEncoders();
+  handleSerialCommands();
+}
