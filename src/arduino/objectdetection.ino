@@ -14,13 +14,34 @@
 #define FRONT_ULTRASONIC_ECHO 10
 
 // ---- Adjustable Settings ----
-int leftSpinSpeed  = 80;
-int rightSpinSpeed = 100;
+int leftSpinSpeed  = 130;
+int rightSpinSpeed = 170;
 
-int spinTime  = 100;   // how long it spins each tick (ms)
-int pauseTime = 300;   // how long it pauses (ms) ← adjust this
+int forwardLeftSpeed  = 100;
+int forwardRightSpeed = 100;
 
-// ---- Ultrasonic Function ----
+int pauseTime = 300;
+
+int forwardTimeAfterDetection = 700;
+int leftResetPulses = 6;
+
+// ---- Detection Settings ----
+const int OBJECT_DISTANCE_THRESHOLD_CM = 50;
+const int MIN_OBJECT_PULSES = 3;
+const int MAX_SCAN_PULSES = 80;
+const int PEAK_TOLERANCE_CM = 1;
+
+// ---- Stop threshold ----
+const int STOP_DISTANCE_CM = 10;
+
+// ---- Encoder Variables ----
+long leftCount = 0;
+long rightCount = 0;
+
+int lastLeftState = LOW;
+int lastRightState = LOW;
+
+// ---- Ultrasonic ----
 long readUltrasonicCM(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
@@ -46,6 +67,252 @@ void stopMotors() {
   digitalWrite(RIGHT_MOTOR_BACKWARD, LOW);
 }
 
+// ---- Emergency Stop ----
+void stopForever() {
+  stopMotors();
+  Serial.println("OBJECT TOO CLOSE - FINAL STOP");
+
+  while (true);
+}
+
+// ---- Spin Right ----
+void startSpinRight() {
+  digitalWrite(LEFT_MOTOR_FORWARD, HIGH);
+  digitalWrite(LEFT_MOTOR_BACKWARD, LOW);
+
+  digitalWrite(RIGHT_MOTOR_FORWARD, LOW);
+  digitalWrite(RIGHT_MOTOR_BACKWARD, HIGH);
+
+  analogWrite(LEFT_MOTOR_POWER, leftSpinSpeed);
+  analogWrite(RIGHT_MOTOR_POWER, rightSpinSpeed);
+}
+
+// ---- Spin Left ----
+void startSpinLeft() {
+  digitalWrite(LEFT_MOTOR_FORWARD, LOW);
+  digitalWrite(LEFT_MOTOR_BACKWARD, HIGH);
+
+  digitalWrite(RIGHT_MOTOR_FORWARD, HIGH);
+  digitalWrite(RIGHT_MOTOR_BACKWARD, LOW);
+
+  analogWrite(LEFT_MOTOR_POWER, leftSpinSpeed);
+  analogWrite(RIGHT_MOTOR_POWER, rightSpinSpeed);
+}
+
+// ---- Move Forward ----
+void moveForward() {
+  digitalWrite(LEFT_MOTOR_FORWARD, HIGH);
+  digitalWrite(LEFT_MOTOR_BACKWARD, LOW);
+
+  digitalWrite(RIGHT_MOTOR_FORWARD, HIGH);
+  digitalWrite(RIGHT_MOTOR_BACKWARD, LOW);
+
+  analogWrite(LEFT_MOTOR_POWER, forwardLeftSpeed);
+  analogWrite(RIGHT_MOTOR_POWER, forwardRightSpeed);
+}
+
+// ---- Move Forward For Fixed Time ----
+void moveForwardForTime(int durationMs) {
+  Serial.print("MOVING FORWARD FOR ");
+  Serial.print(durationMs);
+  Serial.println(" ms");
+
+  unsigned long start = millis();
+
+  moveForward();
+
+  while (millis() - start < (unsigned long)durationMs) {
+    long cm = readUltrasonicCM(FRONT_ULTRASONIC_TRIG, FRONT_ULTRASONIC_ECHO);
+
+    Serial.print("Forward Distance: ");
+    Serial.println(cm);
+
+    if (cm > 0 && cm <= STOP_DISTANCE_CM) {
+      stopForever();
+    }
+
+    delay(30);
+  }
+
+  stopMotors();
+  Serial.println("FORWARD DONE");
+}
+
+// ---- Encoder Update ----
+void updateEncoders() {
+  int leftState = digitalRead(LEFT_ENCODER);
+  int rightState = digitalRead(RIGHT_ENCODER);
+
+  if (leftState == HIGH && lastLeftState == LOW) leftCount++;
+  if (rightState == HIGH && lastRightState == LOW) rightCount++;
+
+  lastLeftState = leftState;
+  lastRightState = rightState;
+}
+
+// ---- Spin One Tick ----
+void spinUntilNextRightEncoder() {
+  long startRight = rightCount;
+
+  startSpinRight();
+
+  while (true) {
+    updateEncoders();
+    if (rightCount > startRight) break;
+  }
+
+  stopMotors();
+}
+
+// ---- Spin Left Pulses ----
+void spinLeftPulses(long pulses) {
+  if (pulses <= 0) {
+    stopMotors();
+    return;
+  }
+
+  long start = rightCount;
+
+  startSpinLeft();
+
+  while (true) {
+    updateEncoders();
+    if ((rightCount - start) >= pulses) break;
+  }
+
+  stopMotors();
+}
+
+// ---- Scan ----
+// Finds object, then centers on the PEAK / NEAREST part of that object
+bool scanForObjectAndCenterIfFound() {
+  bool inObject = false;
+
+  long objectStartPulse = -1;
+  long objectEndPulse = -1;
+
+  long nearestDistance = 100000;
+
+  // range where the nearest value occurs
+  long peakStartPulse = -1;
+  long peakEndPulse = -1;
+
+  Serial.println("---- NEW SCAN ----");
+
+  for (int scanPulse = 1; scanPulse <= MAX_SCAN_PULSES; scanPulse++) {
+    spinUntilNextRightEncoder();
+
+    long cm = readUltrasonicCM(FRONT_ULTRASONIC_TRIG, FRONT_ULTRASONIC_ECHO);
+
+    Serial.print("Pulse ");
+    Serial.print(scanPulse);
+    Serial.print(" | Distance ");
+    Serial.println(cm);
+
+    if (cm > 0 && cm <= STOP_DISTANCE_CM) {
+      stopForever();
+    }
+
+    bool objectSeen = (cm > 0 && cm <= OBJECT_DISTANCE_THRESHOLD_CM);
+
+    if (objectSeen) {
+      if (!inObject) {
+        inObject = true;
+        objectStartPulse = scanPulse;
+        objectEndPulse = scanPulse;
+
+        nearestDistance = cm;
+        peakStartPulse = scanPulse;
+        peakEndPulse = scanPulse;
+      } else {
+        objectEndPulse = scanPulse;
+
+        // Found a new nearest point
+        if (cm < nearestDistance - PEAK_TOLERANCE_CM) {
+          nearestDistance = cm;
+          peakStartPulse = scanPulse;
+          peakEndPulse = scanPulse;
+        }
+        // Still part of the same nearest/peak region
+        else if (cm <= nearestDistance + PEAK_TOLERANCE_CM) {
+          peakEndPulse = scanPulse;
+        }
+      }
+    } else {
+      if (inObject) {
+        long width = objectEndPulse - objectStartPulse + 1;
+
+        if (width >= MIN_OBJECT_PULSES) {
+          long peakMid = (peakStartPulse + peakEndPulse) / 2;
+          long pulsesBack = scanPulse - peakMid;
+
+          Serial.println("OBJECT FOUND");
+          Serial.print("Object start pulse: ");
+          Serial.println(objectStartPulse);
+          Serial.print("Object end pulse: ");
+          Serial.println(objectEndPulse);
+          Serial.print("Nearest distance: ");
+          Serial.println(nearestDistance);
+          Serial.print("Peak start pulse: ");
+          Serial.println(peakStartPulse);
+          Serial.print("Peak end pulse: ");
+          Serial.println(peakEndPulse);
+          Serial.print("Peak midpoint pulse: ");
+          Serial.println(peakMid);
+          Serial.print("Spinning left by ");
+          Serial.print(pulsesBack);
+          Serial.println(" pulses");
+
+          spinLeftPulses(pulsesBack);
+
+          Serial.println("CENTERED ON PEAK / NEAREST");
+          return true;
+        }
+
+        inObject = false;
+        objectStartPulse = -1;
+        objectEndPulse = -1;
+        nearestDistance = 100000;
+        peakStartPulse = -1;
+        peakEndPulse = -1;
+      }
+    }
+
+    delay(pauseTime);
+  }
+
+  // Handle case where scan ends while still inside object
+  if (inObject) {
+    long width = objectEndPulse - objectStartPulse + 1;
+
+    if (width >= MIN_OBJECT_PULSES) {
+      long peakMid = (peakStartPulse + peakEndPulse) / 2;
+      long pulsesBack = MAX_SCAN_PULSES - peakMid;
+
+      Serial.println("OBJECT FOUND AT END OF SCAN");
+      Serial.print("Nearest distance: ");
+      Serial.println(nearestDistance);
+      Serial.print("Peak start pulse: ");
+      Serial.println(peakStartPulse);
+      Serial.print("Peak end pulse: ");
+      Serial.println(peakEndPulse);
+      Serial.print("Peak midpoint pulse: ");
+      Serial.println(peakMid);
+      Serial.print("Spinning left by ");
+      Serial.print(pulsesBack);
+      Serial.println(" pulses");
+
+      spinLeftPulses(pulsesBack);
+
+      Serial.println("CENTERED ON PEAK / NEAREST");
+      return true;
+    }
+  }
+
+  Serial.println("NO OBJECT FOUND");
+  return false;
+}
+
 // ---- Setup ----
 void setup() {
   Serial.begin(9600);
@@ -57,34 +324,36 @@ void setup() {
   pinMode(RIGHT_MOTOR_FORWARD, OUTPUT);
   pinMode(RIGHT_MOTOR_BACKWARD, OUTPUT);
 
+  pinMode(LEFT_ENCODER, INPUT_PULLUP);
+  pinMode(RIGHT_ENCODER, INPUT_PULLUP);
+
   pinMode(FRONT_ULTRASONIC_TRIG, OUTPUT);
   pinMode(FRONT_ULTRASONIC_ECHO, INPUT);
+
+  lastLeftState = digitalRead(LEFT_ENCODER);
+  lastRightState = digitalRead(RIGHT_ENCODER);
+
+  stopMotors();
+  delay(5000);
 }
 
 // ---- Loop ----
 void loop() {
+  bool objectFound = scanForObjectAndCenterIfFound();
 
-  // 1️⃣ Spin
-  digitalWrite(LEFT_MOTOR_FORWARD, HIGH);
-  digitalWrite(LEFT_MOTOR_BACKWARD, LOW);
+  if (objectFound) {
+    moveForwardForTime(forwardTimeAfterDetection);
 
-  digitalWrite(RIGHT_MOTOR_FORWARD, LOW);
-  digitalWrite(RIGHT_MOTOR_BACKWARD, HIGH);
+    delay(300);
 
-  analogWrite(LEFT_MOTOR_POWER, leftSpinSpeed);
-  analogWrite(RIGHT_MOTOR_POWER, rightSpinSpeed);
+    Serial.print("SPINNING LEFT ");
+    Serial.print(leftResetPulses);
+    Serial.println(" PULSES");
 
-  delay(spinTime);
+    spinLeftPulses(leftResetPulses);
 
-  // 2️⃣ Stop
-  stopMotors();
-
-  // 3️⃣ Measure distance
-  long cm = readUltrasonicCM(FRONT_ULTRASONIC_TRIG, FRONT_ULTRASONIC_ECHO);
-
-  Serial.print("Front cm: ");
-  Serial.println(cm);
-
-  // 4️⃣ Pause before next tick
-  delay(pauseTime);
+    delay(300);
+  } else {
+    delay(300);
+  }
 }
